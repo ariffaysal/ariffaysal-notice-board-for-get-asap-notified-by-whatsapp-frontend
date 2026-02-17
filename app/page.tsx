@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from 'react';
 import api from './lib/axios';
+import axios from 'axios';
 
 interface Notice {
   id: number;
@@ -16,7 +17,6 @@ export default function Home() {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
   
-  // Modals and Docks
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null); 
   const [replyTarget, setReplyTarget] = useState<Notice | null>(null);
   const [commonReply, setCommonReply] = useState('');
@@ -34,7 +34,6 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  // Public Notice Board Submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -56,14 +55,12 @@ export default function Home() {
     }
   };
 
-  // --- DELETE ALL FUNCTION ---
   const handleDeleteAll = async () => {
     const firstCheck = confirm("⚠️ ARE YOU SURE? This will permanently delete ALL notices from the browser and database.");
     if (firstCheck) {
-      const secondCheck = confirm("Final warning: This action cannot be undone. Clear everything?");
+      const secondCheck = confirm("Final warning for Clear everything?");
       if (secondCheck) {
         try {
-          // Ensure your backend has the @Delete('clear-all') route
           await api.delete('/notices/clear-all');
           setNotices([]); 
           alert("All notices cleared successfully.");
