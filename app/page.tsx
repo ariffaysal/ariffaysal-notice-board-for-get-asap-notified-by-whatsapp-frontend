@@ -26,7 +26,7 @@ export default function Home() {
   const [officialGroups, setOfficialGroups] = useState<string[]>([]);
   const [blockedGroups, setBlockedGroups] = useState<string[]>([]);
 
-  // Load preferences
+  // Load preferences from Local Storage
   useEffect(() => {
     const savedOfficial = localStorage.getItem('officialGroups');
     const savedBlocked = localStorage.getItem('blockedGroups');
@@ -53,7 +53,7 @@ export default function Home() {
     return ['All Groups', ...officialGroups];
   }, [officialGroups]);
 
-  // Discovery: Groups detected in messages but not yet Approved or Rejected
+  // Discovery Logic: Find groups in DB that are neither Approved nor Blocked
   const pendingGroups = useMemo(() => {
     const allDetected = notices
       .map(n => n.groupName)
@@ -76,7 +76,7 @@ export default function Home() {
     localStorage.setItem('officialGroups', JSON.stringify(updated));
   };
 
-  // REJECT: Ignore group forever AND delete existing history from DB
+  // REJECT: Move to blocked list and wipe existing data from DB
   const handleRejectGroup = async (groupName: string) => {
     if (confirm(`Rejecting "${groupName}" will hide it and DELETE its history from the database. Proceed?`)) {
       try {
@@ -89,23 +89,18 @@ export default function Home() {
     }
   };
   
-  // REMOVE: Unapprove, delete history from DB, AND remove from Dropdown
+  // REMOVE: Unapprove, delete history from DB, and refresh dropdown
   const handleRemoveGroup = async (groupName: string) => {
     if (confirm(`Remove "${groupName}"? This will delete all its notices and remove it from your selection menu.`)) {
       try {
-        // 1. Delete from Server
         await api.delete(`/notices/group/${encodeURIComponent(groupName)}`);
-        
-        // 2. Remove from Local Memory (This fixes the dropdown issue)
         const updated = officialGroups.filter(g => g !== groupName);
         setOfficialGroups(updated);
         localStorage.setItem('officialGroups', JSON.stringify(updated));
         
-        // 3. Reset selection if the current active selection was the deleted group
         if (selectedGroup === groupName) {
           setSelectedGroup('All Groups');
         }
-
         fetchNotices();
       } catch (err) { alert("Failed to delete group notices."); }
     }
@@ -155,7 +150,7 @@ export default function Home() {
     <main className="max-w-4xl mx-auto p-6 bg-gray-50 min-h-screen relative pb-20 text-black">
       <h1 className="text-3xl font-bold mb-8 text-gray-800">Public Notice Board</h1>
 
-      {/* MODERATION BOX */}
+      {/* MODERATION BOX - Only shows if new groups send messages */}
       {pendingGroups.length > 0 && (
         <div className="mb-8 bg-amber-50 border border-amber-200 p-5 rounded-2xl shadow-sm">
           <h2 className="text-sm font-bold text-amber-800 mb-3 flex items-center gap-2">
@@ -242,7 +237,7 @@ export default function Home() {
         )}
       </div>
 
-      {/* MODALS & OVERLAYS */}
+      {/* OVERLAYS (Reply & View) */}
       {replyTarget && (
         <div className="fixed bottom-10 right-10 w-80 bg-white shadow-2xl rounded-2xl border border-gray-200 z-50 overflow-hidden">
           <div className="bg-green-600 p-4 flex justify-between items-center text-white">
@@ -267,7 +262,7 @@ export default function Home() {
               <button onClick={() => setSelectedNotice(null)} className="text-gray-400 hover:text-black text-xl font-bold">✕</button>
             </div>
             <div className="bg-gray-50 p-5 rounded-2xl border mb-6">
-               <span className="text-[10px] text-blue-600 font-bold uppercase block mb-2">Group: {selectedNotice.groupName || 'General'}</span>
+              <span className="text-[10px] text-blue-600 font-bold uppercase block mb-2">Group: {selectedNotice.groupName || 'General'}</span>
               <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">{selectedNotice.message}</p>
             </div>
             <div className="flex gap-3">
