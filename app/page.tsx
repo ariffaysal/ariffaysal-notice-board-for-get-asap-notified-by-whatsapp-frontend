@@ -100,18 +100,20 @@ export default function Home() {
       <form onSubmit={handleSubmit} className="space-y-4 bg-white shadow-sm p-6 rounded-2xl border mb-12">
         <h2 className="text-lg font-semibold text-gray-700 mb-2">Post New Announcement</h2>
         
-        <div className="flex flex-col space-y-1">
-          <label className="text-xs font-bold text-gray-500 ml-1">Target WhatsApp Group</label>
-          <select 
-            value={selectedGroup}
-            onChange={(e) => setSelectedGroup(e.target.value)}
-            className="w-full p-3 border rounded-xl bg-gray-50 text-black outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {availableGroups.map(group => (
-              <option key={group} value={group}>{group}</option>
-            ))}
-          </select>
-        </div>
+   <div className="flex flex-col space-y-1">
+  <label className="text-xs font-bold text-gray-500 ml-1">Target WhatsApp Group</label>
+  <select 
+    value={selectedGroup}
+    onChange={(e) => setSelectedGroup(e.target.value)}
+    className="w-full p-3 border rounded-xl bg-gray-50 text-black outline-none focus:ring-2 focus:ring-blue-500"
+  >
+    {availableGroups.map((group, index) => (
+      <option key={`${group}-${index}`} value={group}>
+        {group}
+      </option>
+    ))}
+  </select>
+</div>
 
         <input 
           type="text" placeholder="Notice Title" value={title}
