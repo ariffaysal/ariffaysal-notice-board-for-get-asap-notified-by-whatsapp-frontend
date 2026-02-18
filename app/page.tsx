@@ -15,7 +15,6 @@ export default function Home() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [title, setTitle] = useState(''); 
   const [content, setContent] = useState('');
-  // Changed default to 'All Groups' to make it easier for the user
   const [selectedGroup, setSelectedGroup] = useState('All Groups'); 
   const [loading, setLoading] = useState(false);
   
@@ -23,7 +22,6 @@ export default function Home() {
   const [replyTarget, setReplyTarget] = useState<Notice | null>(null);
   const [commonReply, setCommonReply] = useState('');
 
-  // Added 'All Groups' to the array below
   const availableGroups = ['All Groups', '.Net Framework Project', 'Chemistry'];
 
   const fetchNotices = async () => {
