@@ -26,34 +26,41 @@ export default function Home() {
   const [officialGroups, setOfficialGroups] = useState<string[]>([]);
   const [blockedGroups, setBlockedGroups] = useState<string[]>([]);
 
-  // Load preferences from Local Storage
-  useEffect(() => {
-    const savedOfficial = localStorage.getItem('officialGroups');
-    const savedBlocked = localStorage.getItem('blockedGroups');
-    if (savedOfficial) setOfficialGroups(JSON.parse(savedOfficial));
-    if (savedBlocked) setBlockedGroups(JSON.parse(savedBlocked));
-  }, []);
-
-  const fetchNotices = async () => {
+  // 1. INITIAL FETCH: Sync Notices and Approved Groups from DB
+  const fetchData = async () => {
     try {
-      const res = await api.get('/notices');
-      setNotices(res.data); 
-    } catch (err) { console.error("Fetch Error:", err); }
+      const noticeRes = await api.get('/notices');
+      setNotices(noticeRes.data); 
+
+      const groupRes = await api.get('/notices/settings/groups');
+      if (groupRes.data) {
+        setOfficialGroups(groupRes.data);
+      }
+    } catch (err) { console.error("Sync Error:", err); }
   };
 
   useEffect(() => {
+    // Load blocked groups from local storage (privacy stays local)
+    const savedBlocked = localStorage.getItem('blockedGroups');
+    if (savedBlocked) setBlockedGroups(JSON.parse(savedBlocked));
+
     setMounted(true);
-    fetchNotices();
-    const interval = setInterval(fetchNotices, 5000);
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  // Dropdown list: Always includes 'All Groups' plus Approved Official Groups
+  // 2. DATABASE SYNC HELPER
+  const syncGroupsToDB = async (updatedList: string[]) => {
+    try {
+      await api.post('/notices/settings/groups', { groups: updatedList });
+    } catch (err) { console.error("DB Save Failed:", err); }
+  };
+
   const availableGroups = useMemo(() => {
     return ['All Groups', ...officialGroups];
   }, [officialGroups]);
 
-  // Discovery Logic: Find groups in DB that are neither Approved nor Blocked
   const pendingGroups = useMemo(() => {
     const allDetected = notices
       .map(n => n.groupName)
@@ -65,88 +72,72 @@ export default function Home() {
     );
   }, [notices, officialGroups, blockedGroups]);
 
-  // Main Board Filter: Only show official group messages
   const publicNotices = useMemo(() => {
     return notices.filter(n => !n.groupName || officialGroups.includes(n.groupName));
   }, [notices, officialGroups]);
 
-  const handleApproveGroup = (groupName: string) => {
+  // --- ACTIONS ---
+
+  const handleApproveGroup = async (groupName: string) => {
     const updated = [...officialGroups, groupName];
     setOfficialGroups(updated);
-    localStorage.setItem('officialGroups', JSON.stringify(updated));
+    await syncGroupsToDB(updated);
   };
 
-  // REJECT: Move to blocked list and wipe existing data from DB
   const handleRejectGroup = async (groupName: string) => {
-    if (confirm(`Rejecting "${groupName}" will hide it and DELETE its history from the database. Proceed?`)) {
+    if (confirm(`Rejecting "${groupName}" will hide it and DELETE its history. Proceed?`)) {
       try {
         await api.delete(`/notices/group/${encodeURIComponent(groupName)}`);
         const updated = [...blockedGroups, groupName];
         setBlockedGroups(updated);
         localStorage.setItem('blockedGroups', JSON.stringify(updated));
-        fetchNotices();
-      } catch (err) { alert("Failed to clear group messages from server."); }
+        fetchData();
+      } catch (err) { alert("Failed to clear group messages."); }
     }
   };
   
-  // REMOVE: Unapprove, delete history from DB, and refresh dropdown
   const handleRemoveGroup = async (groupName: string) => {
-    if (confirm(`Remove "${groupName}"? This will delete all its notices and remove it from your selection menu.`)) {
+    if (confirm(`Remove "${groupName}"? This will delete notices and remove it from menu.`)) {
       try {
         await api.delete(`/notices/group/${encodeURIComponent(groupName)}`);
         const updated = officialGroups.filter(g => g !== groupName);
         setOfficialGroups(updated);
-        localStorage.setItem('officialGroups', JSON.stringify(updated));
+        await syncGroupsToDB(updated);
         
-        if (selectedGroup === groupName) {
-          setSelectedGroup('All Groups');
-        }
-        fetchNotices();
+        if (selectedGroup === groupName) setSelectedGroup('All Groups');
+        fetchData();
       } catch (err) { alert("Failed to delete group notices."); }
     }
   };
 
-  useEffect(() => {
-    if (!availableGroups.includes(selectedGroup)) {
-      setSelectedGroup('All Groups');
-    }
-  }, [availableGroups, selectedGroup]);
-
-
-
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setLoading(true);
-  try {
-    await api.post('/notices', { 
-      title, 
-      content, 
-      category: 'General', 
-      groupName: selectedGroup,
-      approvedGroups: officialGroups 
-    });
-    
-    setTitle(''); 
-    setContent(''); 
-    fetchNotices();
-  } catch (err) { 
-    alert("Failed to post notice."); 
-  } finally { 
-    setLoading(false); 
-  }
-};
-
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await api.post('/notices', { 
+        title, 
+        content, 
+        category: 'General', 
+        groupName: selectedGroup,
+        approvedGroups: officialGroups 
+      });
+      setTitle(''); 
+      setContent(''); 
+      fetchData();
+    } catch (err) { alert("Failed to post notice."); }
+    finally { setLoading(false); }
+  };
 
   const handleDelete = async (id: number) => {
     if (confirm("Delete this notice?")) {
-      try { await api.delete(`/notices/${id}`); fetchNotices(); }
+      try { await api.delete(`/notices/${id}`); fetchData(); }
       catch (err) { alert("Delete failed."); }
     }
   };
 
   const handleDeleteAll = async () => {
     if (confirm("⚠️ ARE YOU SURE? This will permanently delete ALL notices.")) {
-      try { await api.delete('/notices/clear-all'); setNotices([]); alert("All notices cleared."); }
+      try { await api.delete('/notices/clear-all'); fetchData(); alert("All notices cleared."); }
       catch (err) { alert("Failed to clear notices."); }
     }
   };
@@ -154,8 +145,15 @@ const handleSubmit = async (e: React.FormEvent) => {
   const handleSendReply = async () => {
     if (!commonReply || !replyTarget) return;
     try {
-      await api.post('/notices', { title: "Admin Reply", content: commonReply, category: 'Reply', groupName: replyTarget.groupName });
-      setCommonReply(''); setReplyTarget(null); fetchNotices();
+      await api.post('/notices', { 
+        title: "Admin Reply", 
+        content: commonReply, 
+        category: 'Reply', 
+        groupName: replyTarget.groupName 
+      });
+      setCommonReply(''); 
+      setReplyTarget(null); 
+      fetchData();
     } catch (err) { alert("Reply failed."); }
   };
 
@@ -165,7 +163,7 @@ const handleSubmit = async (e: React.FormEvent) => {
     <main className="max-w-4xl mx-auto p-6 bg-gray-50 min-h-screen relative pb-20 text-black">
       <h1 className="text-3xl font-bold mb-8 text-gray-800">Public Notice Board</h1>
 
-      {/* MODERATION BOX - Only shows if new groups send messages */}
+      {/* MODERATION BOX */}
       {pendingGroups.length > 0 && (
         <div className="mb-8 bg-amber-50 border border-amber-200 p-5 rounded-2xl shadow-sm">
           <h2 className="text-sm font-bold text-amber-800 mb-3 flex items-center gap-2">
@@ -187,7 +185,7 @@ const handleSubmit = async (e: React.FormEvent) => {
         </div>
       )}
 
-      {/* POST ANNOUNCEMENT FORM */}
+      {/* FORM */}
       <form onSubmit={handleSubmit} className="space-y-4 bg-white shadow-sm p-6 rounded-2xl border mb-12">
         <h2 className="text-lg font-semibold text-gray-700 mb-2">Post New Announcement</h2>
         <div className="flex flex-col space-y-1">
@@ -207,7 +205,7 @@ const handleSubmit = async (e: React.FormEvent) => {
 
       <hr className="mb-10 border-gray-200" />
 
-      {/* OFFICIAL ACTIVITIES LIST */}
+      {/* LIST */}
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold text-gray-800">Official Activities</h2>
         {notices.length > 0 && (
@@ -234,7 +232,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                         <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-full border border-blue-100 uppercase">
                           {notice.groupName}
                         </span>
-                        <button onClick={() => handleRemoveGroup(notice.groupName!)} title="Unapprove and Wipe Group" className="text-[10px] text-gray-300 hover:text-red-500">✕</button>
+                        <button onClick={() => handleRemoveGroup(notice.groupName!)} className="text-[10px] text-gray-300 hover:text-red-500">✕</button>
                       </div>
                     )}
                   </div>
@@ -252,7 +250,7 @@ const handleSubmit = async (e: React.FormEvent) => {
         )}
       </div>
 
-      {/* OVERLAYS (Reply & View) */}
+      {/* OVERLAYS */}
       {replyTarget && (
         <div className="fixed bottom-10 right-10 w-80 bg-white shadow-2xl rounded-2xl border border-gray-200 z-50 overflow-hidden">
           <div className="bg-green-600 p-4 flex justify-between items-center text-white">
@@ -264,7 +262,7 @@ const handleSubmit = async (e: React.FormEvent) => {
           </div>
           <div className="p-4">
             <textarea value={commonReply} onChange={(e) => setCommonReply(e.target.value)} className="w-full p-3 border rounded-xl text-sm h-32 resize-none bg-gray-50 outline-none focus:ring-1 focus:ring-green-500" autoFocus />
-            <button onClick={handleSendReply} className="w-full mt-3 bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition">Send to {replyTarget.groupName}</button>
+            <button onClick={handleSendReply} className="w-full mt-3 bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition">Send</button>
           </div>
         </div>
       )}
