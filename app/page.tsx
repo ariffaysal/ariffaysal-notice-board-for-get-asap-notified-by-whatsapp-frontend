@@ -112,15 +112,30 @@ export default function Home() {
     }
   }, [availableGroups, selectedGroup]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await api.post('/notices', { title, content, category: 'General', groupName: selectedGroup });
-      setTitle(''); setContent(''); fetchNotices();
-    } catch (err) { alert("Failed to post notice."); }
-    finally { setLoading(false); }
-  };
+
+
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setLoading(true);
+  try {
+    await api.post('/notices', { 
+      title, 
+      content, 
+      category: 'General', 
+      groupName: selectedGroup,
+      approvedGroups: officialGroups 
+    });
+    
+    setTitle(''); 
+    setContent(''); 
+    fetchNotices();
+  } catch (err) { 
+    alert("Failed to post notice."); 
+  } finally { 
+    setLoading(false); 
+  }
+};
+
 
   const handleDelete = async (id: number) => {
     if (confirm("Delete this notice?")) {
