@@ -25,8 +25,11 @@ export default function Home() {
 
   const [officialGroups, setOfficialGroups] = useState<string[]>([]);
   const [blockedGroups, setBlockedGroups] = useState<string[]>([]);
+  
+  // New State for ID Search
+  const [searchId, setSearchId] = useState('');
 
-  // 1. INITIAL FETCH: Sync Notices and Approved Groups from DB
+  // 1. INITIAL FETCH: Sync Notices (Today Only) and Approved Groups
   const fetchData = async () => {
     try {
       const noticeRes = await api.get('/notices');
@@ -40,7 +43,6 @@ export default function Home() {
   };
 
   useEffect(() => {
-    // Load blocked groups from local storage (privacy stays local)
     const savedBlocked = localStorage.getItem('blockedGroups');
     if (savedBlocked) setBlockedGroups(JSON.parse(savedBlocked));
 
@@ -50,26 +52,37 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  // 2. DATABASE SYNC HELPER
+  // 2. SEARCH BY ID LOGIC
+  const handleSearchById = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchId) return;
+    try {
+      // Calls the NestJS GET /notices/:id endpoint
+      const res = await api.get(`/notices/${searchId}`);
+      if (res.data) {
+        setSelectedNotice(res.data); // Open in the View Modal
+        setSearchId('');
+      }
+    } catch (err) {
+      alert(`Notice ID #${searchId} not found in historical records.`);
+    }
+  };
+
+  // 3. HELPERS & MEMOS
   const syncGroupsToDB = async (updatedList: string[]) => {
     try {
       await api.post('/notices/settings/groups', { groups: updatedList });
     } catch (err) { console.error("DB Save Failed:", err); }
   };
 
-  const availableGroups = useMemo(() => {
-    return ['All Groups', ...officialGroups];
-  }, [officialGroups]);
+  const availableGroups = useMemo(() => ['All Groups', ...officialGroups], [officialGroups]);
 
   const pendingGroups = useMemo(() => {
     const allDetected = notices
       .map(n => n.groupName)
       .filter((name): name is string => !!name && name !== 'All Groups');
     const uniqueDetected = Array.from(new Set(allDetected));
-    
-    return uniqueDetected.filter(group => 
-      !officialGroups.includes(group) && !blockedGroups.includes(group)
-    );
+    return uniqueDetected.filter(group => !officialGroups.includes(group) && !blockedGroups.includes(group));
   }, [notices, officialGroups, blockedGroups]);
 
   const publicNotices = useMemo(() => {
@@ -77,7 +90,6 @@ export default function Home() {
   }, [notices, officialGroups]);
 
   // --- ACTIONS ---
-
   const handleApproveGroup = async (groupName: string) => {
     const updated = [...officialGroups, groupName];
     setOfficialGroups(updated);
@@ -103,7 +115,6 @@ export default function Home() {
         const updated = officialGroups.filter(g => g !== groupName);
         setOfficialGroups(updated);
         await syncGroupsToDB(updated);
-        
         if (selectedGroup === groupName) setSelectedGroup('All Groups');
         fetchData();
       } catch (err) { alert("Failed to delete group notices."); }
@@ -115,15 +126,9 @@ export default function Home() {
     setLoading(true);
     try {
       await api.post('/notices', { 
-        title, 
-        content, 
-        category: 'General', 
-        groupName: selectedGroup,
-        approvedGroups: officialGroups 
+        title, content, category: 'General', groupName: selectedGroup, approvedGroups: officialGroups 
       });
-      setTitle(''); 
-      setContent(''); 
-      fetchData();
+      setTitle(''); setContent(''); fetchData();
     } catch (err) { alert("Failed to post notice."); }
     finally { setLoading(false); }
   };
@@ -146,14 +151,9 @@ export default function Home() {
     if (!commonReply || !replyTarget) return;
     try {
       await api.post('/notices', { 
-        title: "Admin Reply", 
-        content: commonReply, 
-        category: 'Reply', 
-        groupName: replyTarget.groupName 
+        title: "Admin Reply", content: commonReply, category: 'Reply', groupName: replyTarget.groupName 
       });
-      setCommonReply(''); 
-      setReplyTarget(null); 
-      fetchData();
+      setCommonReply(''); setReplyTarget(null); fetchData();
     } catch (err) { alert("Reply failed."); }
   };
 
@@ -161,24 +161,18 @@ export default function Home() {
 
   return (
     <main className="max-w-4xl mx-auto p-6 bg-gray-50 min-h-screen relative pb-20 text-black">
-      <h1 className="text-3xl font-bold mb-8 text-gray-800">Public Notice Board</h1>
+      <h1 className="text-3xl font-bold mb-8 text-gray-800 tracking-tight">Public Notice Board</h1>
 
       {/* MODERATION BOX */}
       {pendingGroups.length > 0 && (
         <div className="mb-8 bg-amber-50 border border-amber-200 p-5 rounded-2xl shadow-sm">
-          <h2 className="text-sm font-bold text-amber-800 mb-3 flex items-center gap-2">
-            🔔 New Groups Detected (Action Required)
-          </h2>
+          <h2 className="text-sm font-bold text-amber-800 mb-3 flex items-center gap-2">🔔 New Groups Detected</h2>
           <div className="flex flex-wrap gap-3">
             {pendingGroups.map(group => (
               <div key={group} className="flex items-center gap-1 bg-white border border-amber-300 rounded-xl p-1 pr-2 shadow-sm">
-                <button onClick={() => handleApproveGroup(group)} className="px-3 py-1.5 text-xs font-bold text-green-700 hover:bg-green-50 rounded-lg transition">
-                  Approve "{group}"
-                </button>
+                <button onClick={() => handleApproveGroup(group)} className="px-3 py-1.5 text-xs font-bold text-green-700 hover:bg-green-50 rounded-lg transition">Approve "{group}"</button>
                 <div className="w-[1px] h-4 bg-amber-200"></div>
-                <button onClick={() => handleRejectGroup(group)} className="px-3 py-1.5 text-xs font-bold text-red-500 hover:text-red-700 transition">
-                  Reject
-                </button>
+                <button onClick={() => handleRejectGroup(group)} className="px-3 py-1.5 text-xs font-bold text-red-500 hover:text-red-700 transition">Reject</button>
               </div>
             ))}
           </div>
@@ -191,47 +185,56 @@ export default function Home() {
         <div className="flex flex-col space-y-1">
           <label className="text-xs font-bold text-gray-500 ml-1">Target WhatsApp Group</label>
           <select value={selectedGroup} onChange={(e) => setSelectedGroup(e.target.value)} className="w-full p-3 border rounded-xl bg-gray-50 text-black outline-none focus:ring-2 focus:ring-blue-500">
-            {availableGroups.map((group) => (
-              <option key={group} value={group}>{group}</option>
-            ))}
+            {availableGroups.map((group) => <option key={group} value={group}>{group}</option>)}
           </select>
         </div>
         <input type="text" placeholder="Notice Title" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full p-3 border rounded-xl bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500" required />
         <textarea placeholder="Write details here..." value={content} onChange={(e) => setContent(e.target.value)} className="w-full p-3 border rounded-xl h-28 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500" required />
-        <button disabled={loading} className="w-full py-3 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition">
-          {loading ? 'Posting...' : 'Broadcast Notice'}
-        </button>
+        <button disabled={loading} className="w-full py-3 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition">{loading ? 'Posting...' : 'Broadcast Notice'}</button>
       </form>
 
       <hr className="mb-10 border-gray-200" />
 
+      {/* ID SEARCH BAR - NEW INTEGRATION */}
+      <div className="mb-6 bg-white p-4 rounded-2xl border border-blue-100 shadow-sm flex items-center justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-bold text-gray-700">History Lookup</h3>
+          <p className="text-[10px] text-gray-400 uppercase tracking-wider">Search historical records by ID</p>
+        </div>
+        <form onSubmit={handleSearchById} className="flex gap-2">
+          <input 
+            type="number" 
+            placeholder="e.g. 235" 
+            value={searchId}
+            onChange={(e) => setSearchId(e.target.value)}
+            className="w-28 p-2 text-sm border rounded-xl bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none"
+          />
+          <button className="bg-gray-800 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-black transition">Find</button>
+        </form>
+      </div>
+
       {/* LIST */}
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold text-gray-800">Official Activities</h2>
+        <h2 className="text-xl font-bold text-gray-800">Official Activities <span className="text-xs font-normal text-gray-400 ml-2">(Today Only)</span></h2>
         {notices.length > 0 && (
-          <button onClick={handleDeleteAll} className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-xs font-bold border border-red-100 hover:bg-red-600 hover:text-white transition-all shadow-sm">
-            Clear All
-          </button>
+          <button onClick={handleDeleteAll} className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-xs font-bold border border-red-100 hover:bg-red-600 hover:text-white transition-all shadow-sm">Clear All</button>
         )}
       </div>
 
       <div className="grid grid-cols-1 gap-4">
         {publicNotices.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-2xl border border-dashed text-gray-400">
-            No official notices yet. Approve a group above to start.
-          </div>
+          <div className="text-center py-20 bg-white rounded-2xl border border-dashed text-gray-400">No official notices today. Use History Lookup for old records.</div>
         ) : (
           publicNotices.map((notice) => (
             <div key={notice.id} className="p-5 bg-white border rounded-2xl shadow-sm border-l-4 border-l-blue-500 hover:shadow-md transition">
               <div className="flex justify-between items-start mb-3">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-mono text-gray-300">#{notice.id}</span>
                     <h3 className="text-lg font-bold text-gray-900">{notice.name}</h3>
                     {notice.groupName && (
                       <div className="flex items-center gap-1">
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-full border border-blue-100 uppercase">
-                          {notice.groupName}
-                        </span>
+                        <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-full border border-blue-100 uppercase">{notice.groupName}</span>
                         <button onClick={() => handleRemoveGroup(notice.groupName!)} className="text-[10px] text-gray-300 hover:text-red-500">✕</button>
                       </div>
                     )}
@@ -250,7 +253,7 @@ export default function Home() {
         )}
       </div>
 
-      {/* OVERLAYS */}
+      {/* OVERLAYS (MODALS) */}
       {replyTarget && (
         <div className="fixed bottom-10 right-10 w-80 bg-white shadow-2xl rounded-2xl border border-gray-200 z-50 overflow-hidden">
           <div className="bg-green-600 p-4 flex justify-between items-center text-white">
@@ -271,12 +274,16 @@ export default function Home() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
           <div className="bg-white p-6 rounded-3xl max-w-md w-full shadow-2xl">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-black">{selectedNotice.name}</h2>
+              <div className="flex items-center gap-2">
+                <span className="bg-blue-600 text-white px-2 py-1 rounded text-[10px] font-bold">ID #{selectedNotice.id}</span>
+                <h2 className="text-xl font-bold text-black">{selectedNotice.name}</h2>
+              </div>
               <button onClick={() => setSelectedNotice(null)} className="text-gray-400 hover:text-black text-xl font-bold">✕</button>
             </div>
             <div className="bg-gray-50 p-5 rounded-2xl border mb-6">
               <span className="text-[10px] text-blue-600 font-bold uppercase block mb-2">Group: {selectedNotice.groupName || 'General'}</span>
               <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">{selectedNotice.message}</p>
+              <p className="mt-4 text-[9px] text-gray-400 uppercase tracking-tighter">Recorded at: {new Date(selectedNotice.createdAt).toLocaleString()}</p>
             </div>
             <div className="flex gap-3">
                <button onClick={() => { setSelectedNotice(null); setReplyTarget(selectedNotice); }} className="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700">Reply</button>
