@@ -30,25 +30,30 @@ export default function Home() {
   // 1. DATA FETCHING
   const fetchData = async () => {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
       const [noticeRes, groupRes] = await Promise.all([
-        api.get('/notices'),
-        api.get('/notices/settings/groups')
+        api.get('/notices', { signal: controller.signal }).catch(() => ({ data: [] })),
+        api.get('/notices/settings/groups', { signal: controller.signal }).catch(() => ({ data: [] }))
       ]);
-      
+
+      clearTimeout(timeoutId);
+
       setNotices(Array.isArray(noticeRes.data) ? noticeRes.data : []);
 
       if (groupRes.data) {
         // Fix: If backend sends "A, B" instead of ["A", "B"], we split it
         const raw = groupRes.data;
-        const parsed = Array.isArray(raw) 
-          ? raw 
-          : typeof raw === 'string' 
+        const parsed = Array.isArray(raw)
+          ? raw
+          : typeof raw === 'string'
             ? raw.split(',').map(s => s.trim()).filter(Boolean)
             : [];
         setOfficialGroups(parsed);
       }
-    } catch (err) { 
-      console.error("Sync Error:", err); 
+    } catch (err) {
+      console.error("Sync Error:", err);
     }
   };
 
@@ -68,13 +73,18 @@ export default function Home() {
     e.preventDefault();
     if (!searchId) return;
     try {
-      const res = await api.get(`/notices/${searchId}`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const res = await api.get(`/notices/${searchId}`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       if (res.data) {
         setSelectedNotice(res.data);
         setSearchId('');
       }
     } catch (err) {
-      alert(`Notice ID #${searchId} not found.`);
+      alert(`Notice ID #${searchId} not found or server unavailable.`);
     }
   };
 
@@ -108,7 +118,15 @@ export default function Home() {
   const handleApproveGroup = async (groupName: string) => {
     const updated = [...officialGroups, groupName];
     setOfficialGroups(updated);
-    await api.post('/notices/settings/groups', { groups: updated });
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      await api.post('/notices/settings/groups', { groups: updated }, { signal: controller.signal });
+      clearTimeout(timeoutId);
+    } catch (err) {
+      console.error("Failed to approve group:", err);
+    }
     fetchData();
   };
 
@@ -124,7 +142,15 @@ export default function Home() {
     if (confirm(`Remove "${groupName}" from official list?`)) {
       const updated = officialGroups.filter(g => g !== groupName);
       setOfficialGroups(updated);
-      await api.post('/notices/settings/groups', { groups: updated });
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        await api.post('/notices/settings/groups', { groups: updated }, { signal: controller.signal });
+        clearTimeout(timeoutId);
+      } catch (err) {
+        console.error("Failed to update groups:", err);
+      }
       fetchData();
     }
   };
@@ -133,29 +159,47 @@ export default function Home() {
     e.preventDefault();
     setLoading(true);
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       await api.post('/notices', {
         title, content, category: 'General', groupName: selectedGroup
-      });
+      }, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       setTitle(''); setContent(''); fetchData();
-    } catch (err) { alert("Post failed."); }
+    } catch (err) { alert("Post failed. Server may be unavailable."); }
     finally { setLoading(false); }
   };
 
   const handleDelete = async (id: number) => {
     if (confirm("Delete this notice?")) {
-      try { await api.delete(`/notices/${id}`); fetchData(); }
-      catch (err) { alert("Delete failed."); }
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        await api.delete(`/notices/${id}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        fetchData();
+      }
+      catch (err) { alert("Delete failed. Server may be unavailable."); }
     }
   };
 
   const handleSendReply = async () => {
     if (!commonReply || !replyTarget) return;
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       await api.post('/notices', {
         title: "Admin Reply", content: commonReply, category: 'Reply', groupName: replyTarget.groupName
-      });
+      }, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       setCommonReply(''); setReplyTarget(null); fetchData();
-    } catch (err) { alert("Reply failed."); }
+    } catch (err) { alert("Reply failed. Server may be unavailable."); }
   };
 
   if (!mounted) return null;
